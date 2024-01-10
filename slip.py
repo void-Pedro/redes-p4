@@ -38,6 +38,7 @@ class CamadaEnlace:
         if self.callback:
             self.callback(datagrama)
 
+dados_residuais = b''
 
 class Enlace:
     def __init__(self, linha_serial):
@@ -51,7 +52,11 @@ class Enlace:
         # TODO: Preencha aqui com o código para enviar o datagrama pela linha
         # serial, fazendo corretamente a delimitação de quadros e o escape de
         # sequências especiais, de acordo com o protocolo CamadaEnlace (RFC 1055).
-        pass
+        datagrama = datagrama.replace(b'\xDB',b'\xDB\xDD')
+        datagrama = datagrama.replace(b'\xC0',b'\xDB\xDC')
+        datagrama = b'\xC0'+datagrama+b'\xC0'
+
+        self.linha_serial.enviar(datagrama)
 
     def __raw_recv(self, dados):
         # TODO: Preencha aqui com o código para receber dados da linha serial.
@@ -61,4 +66,39 @@ class Enlace:
         # vir quebrado de várias formas diferentes - por exemplo, podem vir
         # apenas pedaços de um quadro, ou um pedaço de quadro seguido de um
         # pedaço de outro, ou vários quadros de uma vez só.
-        pass
+        global dados_residuais
+        dados = dados_residuais + dados
+
+        if dados.endswith(b'\xC0'):
+            dados_residuais = b''
+        else:
+            dados_residuais = dados
+
+        if dados_residuais == b'' and (len(dados.split(b'\xC0')) == 2 or (len(dados.split(b'\xC0')) == 3 and dados.startswith(b'\xC0') and dados.endswith(b'\xC0'))):
+            enviar = dados.replace(b'\xC0',b'')
+            enviar = enviar.replace(b'\xDB\xDC', b'\xC0')
+            enviar = enviar.replace(b'\xDB\xDD', b'\xDB')
+            if enviar != b'':
+                try:
+                    self.callback(enviar)
+                except:
+                    import traceback
+                    traceback.print_exc
+                finally:
+                    dados = b''
+                return
+
+        dados_em_partes = dados.split(b'\xC0')
+        if dados_residuais == b'':
+            for i in range(len(dados_em_partes)):
+                enviar = dados_em_partes[i]
+                enviar = enviar.replace(b'\xDB\xDC', b'\xC0')
+                enviar = enviar.replace(b'\xDB\xDD', b'\xDB')
+                if enviar != b'':
+                    try:
+                        self.callback(enviar)
+                    except:
+                        import traceback
+                        traceback.print_exc
+                    finally:
+                        dados = b''
